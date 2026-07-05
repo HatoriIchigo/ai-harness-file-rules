@@ -1,0 +1,27 @@
+# ai-harness-file-rules 設定ファイル
+# 配置先: <プロジェクトルート>/.claude/harness/config/ai-harness-file-rules.yml
+# 書き込み系ツール（Write / Edit / MultiEdit）の PostToolUse で、書き込んだソースファイルを
+# tree-sitter で AST 解析し、ファイル単位のコード構造ルールに反したら deny（exit 2）する。
+
+# 検査エントリ。ファイルが pattern にマッチしたら（先頭優先）そのエントリの規則を適用する。
+files:
+  - pattern: "src/main/java/**/*.java"
+    lines: 500              # 1 ファイルの最大行数（"*" または省略で無制限）
+    class:
+      one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当は 1 個まで）
+      force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
+    method:
+      num: 5                # ファイル内メソッド数の上限（"*" または省略で無制限）
+      lines: 50             # 1 メソッドの最大行数（"*" または省略で無制限）
+
+  - pattern: "frontend/main/**/*.ts"
+    lines: 300
+    method:
+      lines: 40
+    # class を書かなければ class 検査はしない。
+
+# メモ:
+#   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
+#   - クラス概念の無い C / Go / Rust では class 検査は自動でスキップされる。
+#   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。
+#   - 設定が不正／有効エントリ無しの場合は対応言語のソース書き込みを全 deny（フェイルクローズ）。
