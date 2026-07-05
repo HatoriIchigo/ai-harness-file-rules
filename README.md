@@ -79,12 +79,14 @@ files:
 ```sh
 dotnet build ai-harness-file-rules/ai-harness-file-rules/ai-harness-file-rules.csproj -c Release
 
-# 出力一式（プラグイン DLL・TreeSitter.dll・runtimes/・.deps.json）を lib/ へ。
+# プラグイン DLL・TreeSitter.dll（マネージド）と .deps.json は lib/ へ。
 BIN=ai-harness-file-rules/ai-harness-file-rules/bin/Release/net10.0
 cp "$BIN/ai-harness-file-rules.dll"       <配置先>/lib/
 cp "$BIN/ai-harness-file-rules.deps.json" <配置先>/lib/
 cp "$BIN/TreeSitter.dll"                   <配置先>/lib/
-cp -r "$BIN/runtimes"                      <配置先>/lib/
+# ネイティブ grammar（tree-sitter-*.dll）は**実行体（ai-harness-main）の隣**の runtimes/ へ。
+# TreeSitter.DotNet はベア名でロードするため host が起動時に runtimes/<rid>/native を事前ロードして解決する。
+cp -r "$BIN/runtimes"                      <配置先>/runtimes
 
 cp ai-harness-file-rules/config/ai-harness-file-rules.yml  <プロジェクト>/.claude/harness/config/
 
@@ -94,7 +96,7 @@ cp ai-harness-file-rules/config/ai-harness-file-rules.yml  <プロジェクト>/
 
 `baselib.dll` は host が共有ロードするため `lib/` に置かない。`common.yml` の `tools` に `- ai-harness-file-rules: true` を追加して有効化する。詳細は `ai-harness-main/docs/plugin-development.md` を参照。
 
-> `runtimes/` は ai-harness-constants と同じ tree-sitter ネイティブ grammar。両プラグインを併用する場合、同一内容なので lib/ で共有される（後勝ちで上書きされても同一）。
+> `runtimes/` は ai-harness-constants と同じ tree-sitter ネイティブ grammar。両プラグインを併用する場合、同一内容なので実行体隣の `runtimes/` で共有される（後勝ちで上書きされても同一）。host が起動時に一度だけ事前ロードするため、プラグインごとに重複ロードもしない。
 
 ## 構成
 
