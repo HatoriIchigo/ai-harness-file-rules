@@ -79,10 +79,10 @@ files:
 ```sh
 dotnet build ai-harness-file-rules/ai-harness-file-rules/ai-harness-file-rules.csproj -c Release
 
-# 配布物は lib のみ: プラグイン DLL・TreeSitter.dll（マネージド）・.deps.json を lib/ へ。
+# 配布物は lib の管理 DLL のみ: プラグイン DLL・TreeSitter.dll（マネージド）を lib/ へ。
+# .deps.json は不要（host の ALC が lib 直下を直接プローブして TreeSitter.dll を解決する）。
 BIN=ai-harness-file-rules/ai-harness-file-rules/bin/Release/net10.0
 cp "$BIN/ai-harness-file-rules.dll"       <配置先>/lib/
-cp "$BIN/ai-harness-file-rules.deps.json" <配置先>/lib/
 cp "$BIN/TreeSitter.dll"                   <配置先>/lib/
 # ネイティブ grammar（tree-sitter-*.dll）は**プラグイン側では配置しない**。汎用ゆえ host（ai-harness-main）の
 # リリースに runtimes/<rid>/native として同梱され、host が起動時にフルパスで事前ロードして解決する。
