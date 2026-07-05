@@ -79,14 +79,14 @@ files:
 ```sh
 dotnet build ai-harness-file-rules/ai-harness-file-rules/ai-harness-file-rules.csproj -c Release
 
-# プラグイン DLL・TreeSitter.dll（マネージド）と .deps.json は lib/ へ。
+# 配布物は lib のみ: プラグイン DLL・TreeSitter.dll（マネージド）・.deps.json を lib/ へ。
 BIN=ai-harness-file-rules/ai-harness-file-rules/bin/Release/net10.0
 cp "$BIN/ai-harness-file-rules.dll"       <配置先>/lib/
 cp "$BIN/ai-harness-file-rules.deps.json" <配置先>/lib/
 cp "$BIN/TreeSitter.dll"                   <配置先>/lib/
-# ネイティブ grammar（tree-sitter-*.dll）は**実行体（ai-harness-main）の隣**の runtimes/ へ。
-# TreeSitter.DotNet はベア名でロードするため host が起動時に runtimes/<rid>/native を事前ロードして解決する。
-cp -r "$BIN/runtimes"                      <配置先>/runtimes
+# ネイティブ grammar（tree-sitter-*.dll）は**プラグイン側では配置しない**。汎用ゆえ host（ai-harness-main）の
+# リリースに runtimes/<rid>/native として同梱され、host が起動時にフルパスで事前ロードして解決する。
+# from-source で host を自前配置する場合のみ runtimes/ を実行体隣へ置く（build-and-deploy.md 参照）。
 
 cp ai-harness-file-rules/config/ai-harness-file-rules.yml  <プロジェクト>/.claude/harness/config/
 
