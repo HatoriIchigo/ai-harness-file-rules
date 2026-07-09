@@ -26,6 +26,9 @@ public sealed class FileRulesPlugin : PluginBase
 {
     public override string PluginName => "ai-harness-file-rules";
 
+    public override string Description =>
+        "AST 解析で、ファイル単位のコード構造ルール（行数・1クラス1ファイル・メソッド）を強制する";
+
     public override IReadOnlyList<string> Events => new[] { "PostToolUse" };
 
     public override string ConfigName => "ai-harness-file-rules.yml";
