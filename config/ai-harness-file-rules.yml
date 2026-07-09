@@ -13,6 +13,7 @@ files:
     method:
       num: 5                # ファイル内メソッド数の上限（"*" または省略で無制限）
       lines: 50             # 1 メソッドの最大行数（"*" または省略で無制限）
+      in-class: true        # true でクラス外メソッド／クラス外操作（if/for/式文 等）を禁止（省略で無効）
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
@@ -22,6 +23,7 @@ files:
 
 # メモ:
 #   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
-#   - クラス概念の無い C / Go / Rust では class 検査は自動でスキップされる。
+#   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class）は自動でスキップされる。
+#   - method.in-class=true はクラス外のメソッド定義と、import/export を除くトップレベルの操作文を deny する。
 #   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。
 #   - 設定が不正／有効エントリ無しの場合は対応言語のソース書き込みを全 deny（フェイルクローズ）。

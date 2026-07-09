@@ -14,8 +14,9 @@ namespace ai_harness_file_rules;
 ///   class.force      … クラスが必ず要る（メソッドのみのファイル禁止）
 ///   method.num       … ファイル内メソッド数の上限
 ///   method.lines     … 1 メソッドの行数の上限
+///   method.in-class  … メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
 ///
-/// クラス概念の無い言語（C / Go / Rust）では class 検査を自動スキップする。
+/// クラス概念の無い言語（C / Go / Rust）では class 検査（class.* / method.in-class）を自動スキップする。
 /// 判定（対応言語のソースのみ対象。非ソースは常に許可）:
 ///   1. 設定が使用不可            → deny（フェイルクローズ）
 ///   2. pattern にマッチ（先頭優先）→ 構造を解析し規則違反を deny
@@ -169,6 +170,27 @@ public sealed class FileRulesPlugin : PluginBase
         if (rule.MethodNum is { } maxNum && info.Methods.Count > maxNum)
         {
             violations.Add($"メソッド数が上限を超過（{info.Methods.Count} 個 > 上限 {maxNum} 個）");
+        }
+
+        // method.in-class: メソッド・操作は必ずクラス内（クラス概念のある言語のみ）。
+        if (rule.MethodInClass == true && info.HasClassConcept)
+        {
+            foreach (var m in info.OutsideClassMethods.Take(MaxReportedMethods))
+            {
+                violations.Add($"クラス外メソッド '{m.Name}'（{m.StartLine} 行目）は禁止（クラス内に定義する）");
+            }
+            if (info.OutsideClassMethods.Count > MaxReportedMethods)
+            {
+                violations.Add($"…ほか {info.OutsideClassMethods.Count - MaxReportedMethods} 個のクラス外メソッド");
+            }
+            foreach (var op in info.OutsideClassOperations.Take(MaxReportedMethods))
+            {
+                violations.Add($"クラス外の操作 '{op.Kind}'（{op.StartLine} 行目）は禁止（クラス内に置く）");
+            }
+            if (info.OutsideClassOperations.Count > MaxReportedMethods)
+            {
+                violations.Add($"…ほか {info.OutsideClassOperations.Count - MaxReportedMethods} 個のクラス外操作");
+            }
         }
 
         if (rule.MethodMaxLines is { } maxMethodLines)

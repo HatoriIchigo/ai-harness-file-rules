@@ -11,7 +11,8 @@ public readonly record struct FileRule(
     bool? ClassOneFile,
     bool? ClassForce,
     int? MethodNum,
-    int? MethodMaxLines);
+    int? MethodMaxLines,
+    bool? MethodInClass);
 
 /// <summary>
 /// ai-harness-file-rules の設定を解釈・検証した結果。
@@ -27,6 +28,7 @@ public readonly record struct FileRule(
 ///     method:
 ///       num: 5                # ファイル内メソッド数の上限（* または省略で無制限）
 ///       lines: 50             # 1 メソッドの最大行数（* または省略で無制限）
+///       in-class: true        # メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
 /// </code>
 /// 数値に <c>*</c> を使う場合は YAML のエイリアス扱いを避けるため <c>"*"</c> と引用するか、キーを省略する。
 /// </summary>
@@ -99,6 +101,7 @@ public sealed class FileRulesConfig
         }
 
         int? methodNum = null, methodLines = null;
+        bool? methodInClass = null;
         var methodRaw = Get(map, "method");
         if (methodRaw is not null)
         {
@@ -106,6 +109,7 @@ public sealed class FileRulesConfig
             {
                 methodNum = ParseLimit(Get(methodMap, "num"), index, "method.num", pattern, errors);
                 methodLines = ParseLimit(Get(methodMap, "lines"), index, "method.lines", pattern, errors);
+                methodInClass = ParseBool(Get(methodMap, "in-class"), index, "method.in-class", pattern, errors);
             }
             else
             {
@@ -113,7 +117,7 @@ public sealed class FileRulesConfig
             }
         }
 
-        entries.Add(new FileRule(pattern, maxFileLines, oneFile, force, methodNum, methodLines));
+        entries.Add(new FileRule(pattern, maxFileLines, oneFile, force, methodNum, methodLines, methodInClass));
     }
 
     /// <summary>数値上限を解釈。null/空/<c>*</c> は「無制限」(null)。整数以外はエラー。</summary>
