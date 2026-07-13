@@ -73,6 +73,24 @@ files:
 - テスト等を検査対象外にしたい場合は `pattern` に含めなければよい（3 で許可）。
 - ファイルは PostToolUse 時点でディスク上にあるため、書き込んだ**ファイル全体**を解析する。
 
+## 能動スキャン（`ai-harness-main --fire`）
+
+hook は書き込みごとに 1 ファイルを検査する。これに対し `--fire` はプロジェクトの**既存ツリー全体**を一括点検する。`pattern` に合致する全ソースの構造を解析し、規則に違反するファイルがあれば **exit 2**（検出）。適用する規則は hook と同じ（複数マッチは先頭優先）。
+
+hook のゲートではないため、exit 2 は書き込みの差し戻しではなく**スキャン結果のレポート**（CI 等で扱えるようコマンドの終了コードへ反映される）。設定が使用不可なら検査対象・規則を決められないため、hook と同じくフェイルクローズで exit 2。
+
+```yaml
+fire:
+  gitignore: true
+  exclude:
+    - .git
+    - node_modules
+```
+
+- `exclude` … 一致するディレクトリを**部分木ごと**枝刈りし、一致するファイルも走査から外す。`pattern` と同じ glob（`**` / `*` / `?`）。フルパスと各 `/` 区切りサフィックスに照合されるため、名前指定（`node_modules`）・パス指定（`.claude/harness`）・glob（`"**/dist"`）のいずれも書ける。
+- `gitignore` … `true` で、git が無視する（未追跡かつ ignore の）ファイル／ディレクトリも走査から外す。各階層の `.gitignore`・否定（`!`）・`core.excludesFile`・`.git/info/exclude` を尊重する（git に問い合わせる）。git 未導入・非リポジトリなら警告して無効化し、スキャンは継続。既定は `false`。
+- 読めない／解析できないファイルは警告ログを出してスキップする（違反として扱わない）。
+
 ## エンジン
 
 [TreeSitter.DotNet](https://www.nuget.org/packages/TreeSitter.DotNet)（tree-sitter の .NET バインディング）を使用。ネイティブ grammar（`tree-sitter-*.dll`）を同梱し、Windows / Linux（x64）で動作する。ai-harness-constants と同じエンジン。
@@ -107,11 +125,12 @@ cp ai-harness-file-rules/config/ai-harness-file-rules.yml  <プロジェクト>/
 ai-harness-file-rules/
 ├── README.md
 ├── config/
-│   └── ai-harness-file-rules.yml   検査エントリの定義（配置元）
+│   └── ai-harness-file-rules.yml   検査エントリ・fire の定義（配置元）
 └── ai-harness-file-rules/
     ├── ai-harness-file-rules.csproj
-    ├── FileRulesPlugin.cs          PostToolUse の発火・判定・reason 生成
+    ├── FileRulesPlugin.cs          PostToolUse の発火・能動スキャン・判定・reason 生成
     ├── FileRulesConfig.cs          設定の解釈とバリデーション
     ├── StructureAnalyzer.cs        tree-sitter でクラス/メソッド構造を解析
+    ├── FireScanner.cs              能動スキャンの走査（fire.exclude / fire.gitignore）
     └── GlobMatcher.cs              ** 対応の glob 一致（他プラグインと同一）
 ```

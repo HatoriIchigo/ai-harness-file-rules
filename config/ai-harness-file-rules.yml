@@ -21,6 +21,25 @@ files:
       lines: 40
     # class を書かなければ class 検査はしない。
 
+# ai-harness-main --fire での能動スキャン設定。
+# 上記 pattern に合致する全ソースを走査し、規則に違反するファイルがあれば exit 2。
+#
+# exclude に一致するディレクトリを部分木ごと除外し（どの深さでも枝刈り）、一致するファイルも走査から外す。
+# exclude は pattern と同じ glob を解釈する（**=任意段のディレクトリ / *=区切りを跨がない任意長 / ?=任意1文字）。
+# フルパスと各 / 区切りサフィックスに照合されるため、名前指定・パス指定・glob のいずれも書ける:
+#   - node_modules      … どの深さの node_modules も除外
+#   - .claude/harness   … ハーネス管理ディレクトリをパス指定で除外
+#   - "**/dist"         … 任意段下の dist を除外
+#
+# gitignore: true にすると、git が無視する（未追跡かつ ignore の）ファイル／ディレクトリも走査対象から外す。
+# 各階層の .gitignore・否定(!)・core.excludesFile・.git/info/exclude を尊重（git に問い合わせる）。
+# git 未導入・非リポジトリのときは警告して無効化し、スキャンは継続する。既定は false。
+fire:
+  gitignore: true
+  exclude:
+    - .git
+    - node_modules
+
 # メモ:
 #   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
 #   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class）は自動でスキップされる。

@@ -21,6 +21,9 @@ namespace ai_harness_file_rules;
 ///   1. 設定が使用不可            → deny（フェイルクローズ）
 ///   2. pattern にマッチ（先頭優先）→ 構造を解析し規則違反を deny
 ///   3. どの pattern にもマッチせず → 許可（管理対象外）
+///
+/// hook とは別に、<c>ai-harness-main --fire</c> の能動スキャン（<see cref="Fire"/>）で既存ツリー全体を
+/// 一括点検できる（走査範囲は設定 <c>fire.exclude</c> / <c>fire.gitignore</c> で絞る）。
 /// </summary>
 public sealed class FileRulesPlugin : PluginBase
 {
@@ -145,6 +148,153 @@ public sealed class FileRulesPlugin : PluginBase
         }
         result.ExitCode = 2;
         result.Reason = BuildViolationReason(filePath, violations);
+    }
+
+    /// <summary>
+    /// 能動スキャン。<c>ai-harness-main --fire</c> から起動され、<paramref name="projectRoot"/> 配下を走査して、
+    /// <c>files</c> の <c>pattern</c> に合致する全ソースの構造を解析し、規則に合致しないファイルがあれば
+    /// exit 2（検出）。走査対象は <c>fire.exclude</c>／<c>fire.gitignore</c> で絞る。
+    ///
+    /// hook（<see cref="Action"/>）が書き込みごとに 1 ファイルを検査するのに対し、こちらは既存ツリー全体を
+    /// 一括点検する。hook のゲートではないため、非 0 は「差し戻し」ではなく検出結果のレポート表示。
+    /// </summary>
+    public override IEnumerable<LogEntry> Fire(string projectRoot, PluginResult result)
+    {
+        var config = FileRulesConfig.Parse(Config);
+
+        // 設定が使えなければ検査対象・規則を決められない（Action と同じフェイルクローズ）。
+        if (!config.IsUsable)
+        {
+            yield return LogEntry.Warning("設定が使用不可のためスキャンできない（フェイルクローズ）");
+            result.ExitCode = 2;
+            result.Reason = BuildConfigErrorReason(config.Errors);
+            yield break;
+        }
+
+        var options = FireScanner.ReadOptions(Config);
+        yield return LogEntry.Info(
+            $"構造スキャン開始 root={projectRoot} 除外パターン=[{string.Join(", ", options.Exclude)}] gitignore={options.Gitignore}");
+
+        var scan = FireScanner.Collect(projectRoot, options);
+        if (scan.Warning is { } warning)
+        {
+            yield return LogEntry.Warning(warning);
+        }
+
+        var targets = SelectTargets(scan.Files, config);
+        yield return LogEntry.Debug($"検査対象ファイル数: {targets.Count}（走査 {scan.Files.Count} 件）");
+
+        var findings = new List<FileFinding>();
+        foreach (var target in targets)
+        {
+            string? source = null;
+            string? error = null;
+            try
+            {
+                source = File.ReadAllText(target.Path);
+            }
+            catch (Exception e)
+            {
+                error = $"ファイルを読めないため検査スキップ: {target.Path} ({e.GetType().Name})";
+            }
+            if (error is not null)
+            {
+                yield return LogEntry.Warning(error);
+                continue;
+            }
+
+            StructureInfo info = new();
+            try
+            {
+                info = StructureAnalyzer.Analyze(target.LanguageId, source!);
+            }
+            catch (Exception e)
+            {
+                error = $"AST 解析に失敗（{target.LanguageId}）: {target.Path} ({e.GetType().Name}: {e.Message})";
+            }
+            if (error is not null)
+            {
+                yield return LogEntry.Error(error);
+                continue;
+            }
+
+            var violations = Evaluate(target.Rule, info, CountLines(source!), target.LanguageId);
+            if (violations.Count == 0)
+            {
+                continue;
+            }
+            yield return LogEntry.Warning($"規則違反 {violations.Count} 件: {target.Path}");
+            findings.Add(new FileFinding(target.Path, violations));
+        }
+
+        if (findings.Count == 0)
+        {
+            yield return LogEntry.Info("規則に違反するファイルは見つからない");
+            yield break; // ExitCode 0（許可）のまま
+        }
+
+        yield return LogEntry.Warning($"規則に違反するファイルを {findings.Count} 件検出");
+        result.ExitCode = 2;
+        result.Reason = BuildFireReason(findings);
+    }
+
+    /// <summary>
+    /// 走査したファイルから検査対象を選ぶ。Action の判定順と同じく、対応言語のソースで、
+    /// pattern に合致するもの（複数マッチは先頭優先）だけを、適用する規則とともに残す。
+    /// </summary>
+    private static List<FireTarget> SelectTargets(IReadOnlyList<string> files, FileRulesConfig config)
+    {
+        var targets = new List<FireTarget>();
+        foreach (var file in files)
+        {
+            if (!StructureAnalyzer.TryGetLanguageId(file, out var languageId))
+            {
+                continue; // 対応言語外（.md 等）は対象外
+            }
+            foreach (var entry in config.Entries)
+            {
+                if (GlobMatcher.IsMatch(entry.Pattern, file))
+                {
+                    targets.Add(new FireTarget(file, languageId, entry));
+                    break; // 先頭優先
+                }
+            }
+        }
+        return targets;
+    }
+
+    /// <summary>検査対象 1 件（パス・解析に使う言語 ID・適用する規則）。</summary>
+    private readonly record struct FireTarget(string Path, string LanguageId, FileRule Rule);
+
+    /// <summary>スキャンで違反が見つかったファイル 1 件。</summary>
+    private readonly record struct FileFinding(string Path, IReadOnlyList<string> Violations);
+
+    /// <summary>reason に列挙する違反ファイルの最大件数と、1 ファイルあたりの違反の最大件数。</summary>
+    private const int MaxReportedFiles = 50;
+    private const int MaxReportedPerFile = 5;
+
+    private static string BuildFireReason(IReadOnlyList<FileFinding> findings)
+    {
+        var sb = new StringBuilder();
+        sb.Append("コード構造ルールに違反しているファイルが ").Append(findings.Count).Append(" 件あります:\n");
+        foreach (var finding in findings.Take(MaxReportedFiles))
+        {
+            sb.Append("- ").Append(finding.Path).Append('\n');
+            foreach (var violation in finding.Violations.Take(MaxReportedPerFile))
+            {
+                sb.Append("    - ").Append(violation).Append('\n');
+            }
+            if (finding.Violations.Count > MaxReportedPerFile)
+            {
+                sb.Append("    - …ほか ").Append(finding.Violations.Count - MaxReportedPerFile).Append(" 件\n");
+            }
+        }
+        if (findings.Count > MaxReportedFiles)
+        {
+            sb.Append("- …ほか ").Append(findings.Count - MaxReportedFiles).Append(" ファイル\n");
+        }
+        sb.Append("\nルールに沿うようファイルを分割・整理してください。");
+        return sb.ToString();
     }
 
     /// <summary>規則に対する違反リストを構築する。</summary>

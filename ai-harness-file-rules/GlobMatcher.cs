@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -40,10 +41,18 @@ public static class GlobMatcher
     }
 
     /// <summary>
+    /// 変換済み正規表現のキャッシュ。能動スキャン（Fire）は全ファイル × 全パターンで照合するため、
+    /// 同じ glob のコンパイルを繰り返さない。
+    /// </summary>
+    private static readonly ConcurrentDictionary<string, Regex> RegexCache = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// glob を正規表現へ変換する。<c>**/</c>＝任意段のディレクトリ（0 段含む）、<c>**</c>＝区切りを跨ぐ任意長、
     /// <c>*</c>＝区切りを跨がない任意長、<c>?</c>＝区切り以外の任意 1 文字。それ以外のメタ文字はエスケープ。
     /// </summary>
-    public static Regex ToRegex(string glob)
+    public static Regex ToRegex(string glob) => RegexCache.GetOrAdd(glob, Compile);
+
+    private static Regex Compile(string glob)
     {
         var sb = new StringBuilder("^");
         for (var i = 0; i < glob.Length; i++)
