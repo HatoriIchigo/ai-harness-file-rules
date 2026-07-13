@@ -15,6 +15,8 @@ namespace ai_harness_file_rules;
 ///   method.num       … ファイル内メソッド数の上限
 ///   method.lines     … 1 メソッドの行数の上限
 ///   method.in-class  … メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
+///   comment.class    … クラスの doc コメント（有無・説明の最低文字数）
+///   comment.method   … メソッドの doc コメント（有無・説明の最低文字数・引数の記述とシグネチャの整合）
 ///
 /// クラス概念の無い言語（C / Go / Rust）では class 検査（class.* / method.in-class）を自動スキップする。
 /// 判定（対応言語のソースのみ対象。非ソースは常に許可）:
@@ -293,7 +295,7 @@ public sealed class FileRulesPlugin : PluginBase
         {
             sb.Append("- …ほか ").Append(findings.Count - MaxReportedFiles).Append(" ファイル\n");
         }
-        sb.Append("\nルールに沿うようファイルを分割・整理してください。");
+        sb.Append("\nルールに沿うよう修正してください（ファイルの分割・整理、doc コメントの追記）。");
         return sb.ToString();
     }
 
@@ -359,6 +361,8 @@ public sealed class FileRulesPlugin : PluginBase
             }
         }
 
+        violations.AddRange(CommentChecker.Evaluate(rule.Comment, info.Declarations, languageId));
+
         return violations;
     }
 
@@ -399,7 +403,7 @@ public sealed class FileRulesPlugin : PluginBase
         sb.Append("コード構造ルールに違反しています: '").Append(filePath).Append("'\n\n");
         sb.Append("違反内容:\n- ");
         sb.Append(string.Join("\n- ", violations));
-        sb.Append("\n\nルールに沿うようファイルを分割・整理してください。");
+        sb.Append("\n\nルールに沿うよう修正してください（ファイルの分割・整理、doc コメントの追記）。");
         return sb.ToString();
     }
 

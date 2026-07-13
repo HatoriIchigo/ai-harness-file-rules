@@ -14,12 +14,21 @@ files:
       num: 5                # ファイル内メソッド数の上限（"*" または省略で無制限）
       lines: 50             # 1 メソッドの最大行数（"*" または省略で無制限）
       in-class: true        # true でクラス外メソッド／クラス外操作（if/for/式文 等）を禁止（省略で無効）
+    comment:
+      class:
+        require: true       # クラスに doc コメント（javadoc）が必須
+        min-length: 10      # 説明文の最低文字数（"*" または省略で無制限）
+      method:
+        require: true       # メソッドに doc コメントが必須
+        min-length: 10
+        params: true        # 全ての引数が doc コメントに記述されていること
+        params-strict: true # シグネチャに無い引数の記述を禁止（リネーム・削除の取り残しを検出）
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
     method:
       lines: 40
-    # class を書かなければ class 検査はしない。
+    # class・comment を書かなければ、その検査はしない。
 
 # ai-harness-main --fire での能動スキャン設定。
 # 上記 pattern に合致する全ソースを走査し、規則に違反するファイルがあれば exit 2。
@@ -42,7 +51,18 @@ fire:
 
 # メモ:
 #   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
-#   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class）は自動でスキップされる。
+#   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class / comment.class）は自動でスキップされる。
 #   - method.in-class=true はクラス外のメソッド定義と、import/export を除くトップレベルの操作文を deny する。
 #   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。
 #   - 設定が不正／有効エントリ無しの場合は対応言語のソース書き込みを全 deny（フェイルクローズ）。
+#
+# doc コメントの書式（言語の標準に合わせる。実装コメント // は doc と認めない。Go を除く）:
+#   Java        /** */          @param 名前 説明
+#   C / C++     /** */ /// /*!  @param 名前 説明（\param・@param[in] 名前 も可）
+#   TypeScript  /** */          @param 名前 - 説明
+#   Rust        /// /** */      # Arguments セクションに * `名前` - 説明
+#   Go          //              列挙タグが無いため、本文中に引数名が現れれば記述ありとみなす
+#   Python      docstring       Google スタイルの Args: セクションに 名前: 説明
+#
+#   params は引数の記述漏れを、params-strict はシグネチャに無い引数の記述を deny する（コメントの乖離防止）。
+#   名前を特定できない引数は記述を求めない（Python の self/cls、Rust の self、Go のレシーバ、TS の分割代入）。

@@ -1,10 +1,10 @@
 # ai-harness-file-rules
 
-> ファイル単位のコード構造ルール（行数・1クラス1ファイル・メソッド数/行数）を AST で強制する ai-harness プラグイン。
+> ファイル単位のコード構造ルール（行数・1クラス1ファイル・メソッド数/行数・doc コメント）を AST で強制する ai-harness プラグイン。
 
 書き込み系ツール（`Write` / `Edit` / `MultiEdit`）の `PostToolUse` で発火し、書き込んだソースファイルを **tree-sitter で AST 解析**する。設定 `files` のエントリで定めた構造ルールに反したら **deny（exit 2）** する。
 
-PostToolUse のため書き込み自体は止められない。deny 時は違反内容を reason で返し、Claude がファイルを分割・整理してルールに合わせる。
+PostToolUse のため書き込み自体は止められない。deny 時は違反内容を reason で返し、Claude がファイルを分割・整理し、doc コメントを補ってルールに合わせる。
 
 ## 対象言語
 
@@ -30,11 +30,36 @@ PostToolUse のため書き込み自体は止められない。deny 時は違反
 | `method.num` | ファイル内メソッド/関数の数の上限 |
 | `method.lines` | 1 メソッド/関数の行数の上限（超過したものを列挙） |
 | `method.in-class` | `true` で、クラス外のメソッド/関数定義とクラス外の操作文（if/for/while/式文 等）を禁止 |
+| `comment.class.require` | クラスに doc コメントが必須 |
+| `comment.class.min-length` | クラスの説明文の最低文字数 |
+| `comment.method.require` | メソッド/関数に doc コメントが必須 |
+| `comment.method.min-length` | メソッド/関数の説明文の最低文字数 |
+| `comment.method.params` | 全ての引数が doc コメントに記述されていること（記述漏れを deny） |
+| `comment.method.params-strict` | シグネチャに無い引数の記述を禁止（リネーム・削除の取り残しを deny） |
 
-- 数値は `"*"`（要引用符）または**キー省略**で無制限。`method.in-class` は真偽値（省略で無効）。
+- 数値は `"*"`（要引用符）または**キー省略**で無制限。`method.in-class`・`comment.*` の真偽値は省略で無効。
 - `method.in-class`: メソッド・操作は必ずクラス内に置かせる。トップレベル（および名前空間直下等）の関数定義と、`import`／`export` を除くトップレベルの操作文を deny する。**クラス概念のある言語（C++ / Java / Python / TypeScript）のみ**有効で、C / Go / Rust では自動スキップ。
 - メソッド数は**ファイル全体**の定義数（クラス内メソッド＋トップレベル関数）。メソッド内のクロージャ/ローカル関数は数えない。TypeScript は変数/フィールドに代入された名前付き arrow も 1 メソッドとして数える。
 - メソッド行数は AST の開始行〜終了行。ファイル行数は末尾改行を 1 行として数えない。
+
+## doc コメント（`comment`）
+
+各言語の標準的な doc 形式のみを doc として認める。実装コメント（Java や Rust の `//`）は doc とみなさず「コメントなし」として deny する（Go は godoc が `//` を doc とするため区別しない）。
+
+| 言語 | doc として認める形式 | 引数の書き方 |
+|---|---|---|
+| Java | `/** */` | `@param 名前 説明` |
+| C / C++ | `/** */` `///` `/*! */` | `@param 名前 説明`（`\param`・`@param[in] 名前` も可） |
+| TypeScript | `/** */` | `@param 名前 - 説明` |
+| Rust | `///` `/** */` | `# Arguments` セクションに `` * `名前` - 説明 `` |
+| Go | `//` | 列挙タグが無いため、**本文中に引数名が現れれば**記述ありとみなす |
+| Python | docstring（本体先頭の文字列） | Google スタイルの `Args:` セクションに `名前: 説明`（`名前 (型): 説明` も可） |
+
+- doc は宣言の**直前行**に連続して置かれたコメント（Rust / Go のように 1 行ずつ別ノードになる形式は連続分を結合する）。1 行でも空けば紐づかない。TypeScript の `export class` はコメントが `export` の前に付くため、そこから遡って探す。
+- Java のアノテーション・Python のデコレータが宣言との間にあっても doc は正しく紐づく。
+- `params` は**シグネチャとの整合**まで見る。名前を特定できない引数は記述を求めない（Python の `self` / `cls`、Rust の `self`、Go のレシーバ、TypeScript の分割代入 `{ a, b }`）。
+- `comment.class` は**クラス概念のある言語（C++ / Java / Python / TypeScript）のみ**有効。C / Go / Rust では対象外（`comment.method` は全言語で有効）。
+- 説明文は doc からタグ・セクション（`@param`・`Args:`・`# Arguments` 等）を除いた本文。`min-length` はこの本文の文字数で判定する。
 
 ## 設定（config/ai-harness-file-rules.yml）
 
@@ -49,12 +74,21 @@ files:
       num: 5
       lines: 50
       in-class: true          # クラス外メソッド／クラス外操作を禁止
+    comment:
+      class:
+        require: true         # クラスに javadoc 必須
+        min-length: 10        # 説明文は 10 文字以上
+      method:
+        require: true
+        min-length: 10
+        params: true          # 全ての引数を @param で記述
+        params-strict: true   # 存在しない引数の @param を禁止
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
     method:
       lines: 40
-    # class を書かなければ class 検査はしない
+    # class・comment を書かなければ、その検査はしない
 ```
 
 ファイルが `pattern` にマッチしたら（複数マッチは先頭優先）そのエントリの規則を適用する。
@@ -69,7 +103,7 @@ files:
 3. どの pattern にもマッチせず → 許可（管理対象外）
 ```
 
-- **フェイルクローズ**: `files` 未設定／有効エントリなし／不正な値（`lines`・`method.num`・`method.lines` が整数でも `*` でもない、`class.*`・`method.in-class` が真偽でない等）があると、対応言語のソース書き込みを **全て deny**。エラー内容は reason に列挙される。
+- **フェイルクローズ**: `files` 未設定／有効エントリなし／不正な値（`lines`・`method.num`・`method.lines`・`comment.*.min-length` が整数でも `*` でもない、`class.*`・`method.in-class`・`comment.*.require` 等が真偽でない等）があると、対応言語のソース書き込みを **全て deny**。エラー内容は reason に列挙される。
 - テスト等を検査対象外にしたい場合は `pattern` に含めなければよい（3 で許可）。
 - ファイルは PostToolUse 時点でディスク上にあるため、書き込んだ**ファイル全体**を解析する。
 
@@ -131,6 +165,10 @@ ai-harness-file-rules/
     ├── FileRulesPlugin.cs          PostToolUse の発火・能動スキャン・判定・reason 生成
     ├── FileRulesConfig.cs          設定の解釈とバリデーション
     ├── StructureAnalyzer.cs        tree-sitter でクラス/メソッド構造を解析
+    ├── Declaration.cs              doc コメント検査の対象となる宣言のモデル
+    ├── DeclarationCollector.cs     AST から宣言・引数名・doc コメントを収集（言語差はここに閉じる）
+    ├── DocComment.cs               doc コメントから説明文と引数の記述を取り出す
+    ├── CommentChecker.cs           doc コメントとシグネチャの突き合わせ
     ├── FireScanner.cs              能動スキャンの走査（fire.exclude / fire.gitignore）
     └── GlobMatcher.cs              ** 対応の glob 一致（他プラグインと同一）
 ```

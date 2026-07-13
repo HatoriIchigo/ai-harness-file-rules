@@ -3,6 +3,17 @@ using System.Collections;
 namespace ai_harness_file_rules;
 
 /// <summary>
+/// doc コメントの規則。<c>null</c> は「検査しない」（省略）を表す。
+/// </summary>
+public readonly record struct CommentRule(
+    bool? ClassRequire,
+    int? ClassMinLength,
+    bool? MethodRequire,
+    int? MethodMinLength,
+    bool? MethodParams,
+    bool? MethodParamsStrict);
+
+/// <summary>
 /// 1 エントリの規則。<c>null</c> の数値/真偽は「検査しない」（<c>*</c> または省略）を表す。
 /// </summary>
 public readonly record struct FileRule(
@@ -12,7 +23,8 @@ public readonly record struct FileRule(
     bool? ClassForce,
     int? MethodNum,
     int? MethodMaxLines,
-    bool? MethodInClass);
+    bool? MethodInClass,
+    CommentRule Comment);
 
 /// <summary>
 /// ai-harness-file-rules の設定を解釈・検証した結果。
@@ -29,6 +41,15 @@ public readonly record struct FileRule(
 ///       num: 5                # ファイル内メソッド数の上限（* または省略で無制限）
 ///       lines: 50             # 1 メソッドの最大行数（* または省略で無制限）
 ///       in-class: true        # メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
+///     comment:
+///       class:
+///         require: true       # クラスに doc コメント必須
+///         min-length: 10      # 説明文の最低文字数
+///       method:
+///         require: true       # メソッドに doc コメント必須
+///         min-length: 10      # 説明文の最低文字数
+///         params: true        # 全ての引数が記述されていること
+///         params-strict: true # 存在しない引数の記述を禁止（シグネチャとの乖離を防ぐ）
 /// </code>
 /// 数値に <c>*</c> を使う場合は YAML のエイリアス扱いを避けるため <c>"*"</c> と引用するか、キーを省略する。
 /// </summary>
@@ -117,7 +138,65 @@ public sealed class FileRulesConfig
             }
         }
 
-        entries.Add(new FileRule(pattern, maxFileLines, oneFile, force, methodNum, methodLines, methodInClass));
+        var comment = ParseComment(map, index, pattern, errors);
+
+        entries.Add(new FileRule(
+            pattern, maxFileLines, oneFile, force, methodNum, methodLines, methodInClass, comment));
+    }
+
+    /// <summary>doc コメント規則（<c>comment.class</c> / <c>comment.method</c>）を解釈する。</summary>
+    private static CommentRule ParseComment(IDictionary map, int index, string pattern, List<string> errors)
+    {
+        var commentRaw = Get(map, "comment");
+        if (commentRaw is null)
+        {
+            return default;
+        }
+        if (commentRaw is not IDictionary commentMap)
+        {
+            errors.Add($"files[{index}] (pattern='{pattern}'): comment はマップである必要があります。");
+            return default;
+        }
+
+        bool? classRequire = null;
+        int? classMinLength = null;
+        var classRaw = Get(commentMap, "class");
+        if (classRaw is not null)
+        {
+            if (classRaw is IDictionary classMap)
+            {
+                classRequire = ParseBool(Get(classMap, "require"), index, "comment.class.require", pattern, errors);
+                classMinLength = ParseLimit(
+                    Get(classMap, "min-length"), index, "comment.class.min-length", pattern, errors);
+            }
+            else
+            {
+                errors.Add($"files[{index}] (pattern='{pattern}'): comment.class はマップである必要があります。");
+            }
+        }
+
+        bool? methodRequire = null, methodParams = null, methodParamsStrict = null;
+        int? methodMinLength = null;
+        var methodRaw = Get(commentMap, "method");
+        if (methodRaw is not null)
+        {
+            if (methodRaw is IDictionary methodMap)
+            {
+                methodRequire = ParseBool(Get(methodMap, "require"), index, "comment.method.require", pattern, errors);
+                methodMinLength = ParseLimit(
+                    Get(methodMap, "min-length"), index, "comment.method.min-length", pattern, errors);
+                methodParams = ParseBool(Get(methodMap, "params"), index, "comment.method.params", pattern, errors);
+                methodParamsStrict = ParseBool(
+                    Get(methodMap, "params-strict"), index, "comment.method.params-strict", pattern, errors);
+            }
+            else
+            {
+                errors.Add($"files[{index}] (pattern='{pattern}'): comment.method はマップである必要があります。");
+            }
+        }
+
+        return new CommentRule(
+            classRequire, classMinLength, methodRequire, methodMinLength, methodParams, methodParamsStrict);
     }
 
     /// <summary>数値上限を解釈。null/空/<c>*</c> は「無制限」(null)。整数以外はエラー。</summary>

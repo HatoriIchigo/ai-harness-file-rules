@@ -25,6 +25,9 @@ public sealed class StructureInfo
 
     /// <summary>どのクラス・メソッドにも属さないトップレベルの操作文（if/for/while/式文 等）。</summary>
     public IReadOnlyList<OutsideClassOperation> OutsideClassOperations { get; init; } = Array.Empty<OutsideClassOperation>();
+
+    /// <summary>コメント検査の対象となる宣言（クラス・メソッド）と、それぞれの引数・doc コメント。</summary>
+    public IReadOnlyList<DeclarationInfo> Declarations { get; init; } = Array.Empty<DeclarationInfo>();
 }
 
 /// <summary>
@@ -146,6 +149,8 @@ public static class StructureAnalyzer
         var outsideOps = new List<OutsideClassOperation>();
         CollectOutsideClass(root, languageId, methodTypes, classTypes, outsideMethods, outsideOps);
 
+        var declarations = DeclarationCollector.Collect(root, languageId, classTypes, methodTypes);
+
         return new StructureInfo
         {
             HasClassConcept = hasClass,
@@ -153,6 +158,7 @@ public static class StructureAnalyzer
             Methods = methods,
             OutsideClassMethods = outsideMethods,
             OutsideClassOperations = outsideOps,
+            Declarations = declarations,
         };
     }
 
@@ -249,8 +255,8 @@ public static class StructureAnalyzer
         return new MethodInfo(GetName(node), node.StartPosition.Row + 1, lines);
     }
 
-    /// <summary>メソッド/関数名を最善努力で抽出（本体には降りない。見つからなければ "?"）。</summary>
-    private static string GetName(Node node, int depth = 0)
+    /// <summary>メソッド/関数・クラス名を最善努力で抽出（本体には降りない。見つからなければ "?"）。</summary>
+    internal static string GetName(Node node, int depth = 0)
     {
         if (depth > 3)
         {
