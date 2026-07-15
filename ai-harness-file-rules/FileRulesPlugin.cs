@@ -38,6 +38,9 @@ public sealed class FileRulesPlugin : PluginBase
 
     public override string ConfigName => "ai-harness-file-rules.yml";
 
+    /// <summary>埋め込み rule（<c>file-rules.rule.md</c>）を各プロジェクトの <c>.claude/rules</c> へ配布する。</summary>
+    public override bool ProvidesRule => true;
+
     private static readonly HashSet<string> TargetTools =
         new(StringComparer.Ordinal) { "Write", "Edit", "MultiEdit" };
 
