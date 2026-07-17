@@ -11,6 +11,7 @@ files:
     # blank-line: 10     # 空行なしで続けられる行数の上限（空行・コメント行が区切り）
     # class:
     #   one-file: true
+    #   extend: "path/to/Base.ext"  # 指定ファイルで宣言されたクラスを必ず継承（配列不可・単一パス）
     # method:
     #   num: 5
     #   lines: 50

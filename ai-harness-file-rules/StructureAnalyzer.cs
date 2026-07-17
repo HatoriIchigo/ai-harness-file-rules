@@ -8,6 +8,12 @@ public sealed record MethodInfo(string Name, int StartLine, int Lines);
 /// <summary>クラス外に置かれた操作（if/for/式文など）1 件の情報（種別・開始行）。</summary>
 public sealed record OutsideClassOperation(string Kind, int StartLine);
 
+/// <summary>
+/// トップレベルのクラス相当 1 件の情報。<see cref="BaseNames"/> は継承する基底クラス／構造体の単純名
+/// （パッケージ・名前空間の修飾は除いた末尾セグメントのみ。多重継承は複数、継承無しは空）。
+/// </summary>
+public sealed record TopLevelClassInfo(string Name, int StartLine, IReadOnlyList<string> BaseNames);
+
 /// <summary>ソース 1 ファイルを AST 解析した構造情報。</summary>
 public sealed class StructureInfo
 {
@@ -16,6 +22,9 @@ public sealed class StructureInfo
 
     /// <summary>トップレベルのクラス相当（class/interface/enum/record/struct 等）の数。</summary>
     public int TopLevelClassCount { get; init; }
+
+    /// <summary>トップレベルのクラス相当ごとの情報（名前・開始行・継承する基底クラス名）。</summary>
+    public IReadOnlyList<TopLevelClassInfo> TopLevelClasses { get; init; } = Array.Empty<TopLevelClassInfo>();
 
     /// <summary>ファイル内のメソッド/関数定義（クロージャ等の入れ子定義は除く）。</summary>
     public IReadOnlyList<MethodInfo> Methods { get; init; } = Array.Empty<MethodInfo>();
@@ -123,6 +132,7 @@ public static class StructureAnalyzer
         var root = tree.RootNode;
 
         var classCount = 0;
+        var topLevelClasses = new List<TopLevelClassInfo>();
         if (classTypes is not null)
         {
             foreach (var child in root.NamedChildren)
@@ -135,12 +145,14 @@ public static class StructureAnalyzer
                         if (classTypes.Contains(inner.Type))
                         {
                             classCount++;
+                            topLevelClasses.Add(BuildClassInfo(inner, languageId));
                         }
                     }
                 }
                 else if (classTypes.Contains(child.Type))
                 {
                     classCount++;
+                    topLevelClasses.Add(BuildClassInfo(child, languageId));
                 }
             }
         }
@@ -161,6 +173,7 @@ public static class StructureAnalyzer
         {
             HasClassConcept = hasClass,
             TopLevelClassCount = classCount,
+            TopLevelClasses = topLevelClasses,
             Methods = methods,
             OutsideClassMethods = outsideMethods,
             OutsideClassOperations = outsideOps,
@@ -293,6 +306,101 @@ public static class StructureAnalyzer
     {
         var lines = node.EndPosition.Row - node.StartPosition.Row + 1;
         return new MethodInfo(GetName(node), node.StartPosition.Row + 1, lines);
+    }
+
+    private static TopLevelClassInfo BuildClassInfo(Node node, string lang) =>
+        new(GetName(node), node.StartPosition.Row + 1, GetBaseNames(node, lang));
+
+    /// <summary>
+    /// 型引数（ジェネリクス）を除いた、識別子として意味を持つノード型。基底クラス名の抽出で
+    /// 「最も具体的な末尾セグメント」（パッケージ／名前空間修飾を除いた単純名）を拾うために使う。
+    /// </summary>
+    private static readonly HashSet<string> IdentifierLeafTypes = new(StringComparer.Ordinal)
+        { "identifier", "type_identifier", "property_identifier", "field_identifier", "namespace_identifier" };
+
+    /// <summary>
+    /// クラス相当ノードが継承する基底クラス／構造体の単純名一覧（4 言語で実測して定義。多重継承は複数）。
+    /// クラス概念はあるが継承構文が無い言語（インターフェース宣言等で該当ノードが無い場合を含む）は空。
+    /// </summary>
+    private static IReadOnlyList<string> GetBaseNames(Node classNode, string lang) => lang switch
+    {
+        "java" => GetSingleBase(classNode, "superclass"),
+        "typescript" or "tsx" => GetTsBase(classNode),
+        "cpp" => GetMultiBase(classNode, "base_class_clause", "access_specifier"),
+        "python" => GetMultiBase(classNode, "argument_list", "keyword_argument"),
+        _ => Array.Empty<string>(),
+    };
+
+    /// <summary>Java: <c>superclass</c>（<c>extends</c> 節）1 個のみ（単一継承）。</summary>
+    private static IReadOnlyList<string> GetSingleBase(Node classNode, string childType)
+    {
+        var child = classNode.NamedChildren.FirstOrDefault(c => c.Type == childType);
+        var name = child is null ? null : LastIdentifierLeaf(child);
+        return name is null ? Array.Empty<string>() : new[] { name };
+    }
+
+    /// <summary>TypeScript: <c>class_heritage</c> 配下の <c>extends_clause</c>（<c>implements</c> は対象外）。</summary>
+    private static IReadOnlyList<string> GetTsBase(Node classNode)
+    {
+        var heritage = classNode.NamedChildren.FirstOrDefault(c => c.Type == "class_heritage");
+        var extendsClause = heritage?.NamedChildren.FirstOrDefault(c => c.Type == "extends_clause");
+        var value = extendsClause?.GetChildForField("value");
+        var name = value is null ? null : LastIdentifierLeaf(value);
+        return name is null ? Array.Empty<string>() : new[] { name };
+    }
+
+    /// <summary>
+    /// C++ / Python: 1 個の節ノード配下に複数の基底が並ぶ言語（多重継承）。<paramref name="skipType"/>
+    /// （C++ の <c>access_specifier</c>／Python の <c>keyword_argument</c>）は基底ではないので除外する。
+    /// </summary>
+    private static IReadOnlyList<string> GetMultiBase(Node classNode, string clauseType, string skipType)
+    {
+        var clause = classNode.NamedChildren.FirstOrDefault(c => c.Type == clauseType);
+        if (clause is null)
+        {
+            return Array.Empty<string>();
+        }
+        var names = new List<string>();
+        foreach (var entry in clause.NamedChildren)
+        {
+            if (entry.Type == skipType)
+            {
+                continue;
+            }
+            var name = LastIdentifierLeaf(entry);
+            if (name is not null)
+            {
+                names.Add(name);
+            }
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// ノード配下で最後に現れる単純識別子を返す（型/属性の最も具体的な末尾セグメント）。
+    /// 修飾名（<c>pkg.Base</c> / <c>ns::Base</c> / <c>ns.Base</c>）は末尾の <c>Base</c> を返し、
+    /// ジェネリクスの型引数（<c>type_arguments</c>）は基底名ではないので降りない。
+    /// </summary>
+    private static string? LastIdentifierLeaf(Node node)
+    {
+        if (IdentifierLeafTypes.Contains(node.Type) && !node.NamedChildren.Any())
+        {
+            return node.Text;
+        }
+        string? last = null;
+        foreach (var child in node.NamedChildren)
+        {
+            if (child.Type == "type_arguments")
+            {
+                continue;
+            }
+            var name = LastIdentifierLeaf(child);
+            if (name is not null)
+            {
+                last = name;
+            }
+        }
+        return last;
     }
 
     /// <summary>メソッド/関数・クラス名を最善努力で抽出（本体には降りない。見つからなければ "?"）。</summary>

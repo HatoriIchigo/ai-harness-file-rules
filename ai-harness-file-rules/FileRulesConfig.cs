@@ -24,6 +24,7 @@ public readonly record struct FileRule(
     int? MaxConsecutiveLines,
     bool? ClassOneFile,
     bool? ClassForce,
+    string? ClassExtend,
     int? MethodNum,
     int? MethodMaxLines,
     bool? MethodInClass,
@@ -43,6 +44,7 @@ public readonly record struct FileRule(
 ///     class:
 ///       one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当 &lt;= 1）
 ///       force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
+///       extend: "path/to/Base.java"  # 指定ファイルで宣言されたクラスを必ず継承（配列不可・単一パス）
 ///     method:
 ///       num: 5                # ファイル内メソッド数の上限（* または省略で無制限）
 ///       lines: 50             # 1 メソッドの最大行数（* または省略で無制限）
@@ -119,6 +121,7 @@ public sealed class FileRulesConfig
         var maxConsecutive = ParseLimit(Get(map, "blank-line"), index, "blank-line", pattern, errors);
 
         bool? oneFile = null, force = null;
+        string? extend = null;
         var classRaw = Get(map, "class");
         if (classRaw is not null)
         {
@@ -126,6 +129,7 @@ public sealed class FileRulesConfig
             {
                 oneFile = ParseBool(Get(classMap, "one-file"), index, "class.one-file", pattern, errors);
                 force = ParseBool(Get(classMap, "force"), index, "class.force", pattern, errors);
+                extend = ParseExtend(Get(classMap, "extend"), index, pattern, errors);
             }
             else
             {
@@ -154,7 +158,7 @@ public sealed class FileRulesConfig
 
         entries.Add(new FileRule(
             pattern, maxFileLines, maxLineLength, tabWidth, maxConsecutive,
-            oneFile, force, methodNum, methodLines, methodInClass, comment));
+            oneFile, force, extend, methodNum, methodLines, methodInClass, comment));
     }
 
     /// <summary>doc コメント規則（<c>comment.class</c> / <c>comment.method</c>）を解釈する。</summary>
@@ -210,6 +214,25 @@ public sealed class FileRulesConfig
 
         return new CommentRule(
             classRequire, classMinLength, methodRequire, methodMinLength, methodParams, methodParamsStrict);
+    }
+
+    /// <summary>
+    /// class.extend を解釈。単一のファイルパス（プロジェクトルート相対、または絶対パス）のみ許可し、
+    /// 配列は誤用としてエラーにする。未設定・空文字は null（検査しない）。
+    /// </summary>
+    private static string? ParseExtend(object? raw, int index, string pattern, List<string> errors)
+    {
+        if (raw is null)
+        {
+            return null;
+        }
+        if (raw is IList or IDictionary)
+        {
+            errors.Add($"files[{index}] (pattern='{pattern}'): class.extend は配列ではなく単一のファイルパスを指定してください。");
+            return null;
+        }
+        var s = raw.ToString()?.Trim();
+        return string.IsNullOrEmpty(s) ? null : s;
     }
 
     /// <summary>数値上限を解釈。null/空/<c>*</c> は「無制限」(null)。整数以外はエラー。</summary>

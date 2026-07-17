@@ -14,6 +14,7 @@ namespace ai_harness_file_rules;
 ///   blank-line       … 空行なしで続けられる行数の上限（空行・コメント行が区切り）
 ///   class.one-file   … トップレベルのクラス相当は 1 個まで
 ///   class.force      … クラスが必ず要る（メソッドのみのファイル禁止）
+///   class.extend     … 指定ファイルで宣言されたクラスを必ず継承（extends。単一パス、配列不可）
 ///   method.num       … ファイル内メソッド数の上限
 ///   method.lines     … 1 メソッドの行数の上限
 ///   method.in-class  … メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
@@ -107,6 +108,22 @@ public sealed class FileRulesPlugin : PluginBase
             yield break;
         }
 
+        // class.extend が設定されていれば、継承先クラス名を先に解決しておく（対象ファイルの解析とは独立）。
+        IReadOnlyList<string>? extendTargets = null;
+        string? extendError = null;
+        if (!string.IsNullOrEmpty(matched.Value.ClassExtend))
+        {
+            // 解決の基準となるプロジェクトルート。cwd が無ければ環境要因のため検査せず許可する
+            // （ai-harness-import-rules のモジュール解決と同じ扱い）。
+            var repoRoot = data.Cwd;
+            if (string.IsNullOrWhiteSpace(repoRoot))
+            {
+                yield return LogEntry.Warning($"cwd 不明のため class.extend 検証不可・スキップ: {filePath}");
+                yield break;
+            }
+            (extendTargets, extendError) = ClassExtendResolver.Resolve(matched.Value.ClassExtend, Path.GetFullPath(repoRoot));
+        }
+
         string? source = null;
         string? readError = null;
         try
@@ -141,7 +158,7 @@ public sealed class FileRulesPlugin : PluginBase
         }
 
         var rule = matched.Value;
-        var violations = Evaluate(rule, info, source!, languageId);
+        var violations = Evaluate(rule, info, source!, languageId, extendTargets, extendError);
 
         if (violations.Count == 0)
         {
@@ -191,9 +208,25 @@ public sealed class FileRulesPlugin : PluginBase
         var targets = SelectTargets(scan.Files, config);
         yield return LogEntry.Debug($"検査対象ファイル数: {targets.Count}（走査 {scan.Files.Count} 件）");
 
+        // class.extend の解決結果はエントリの規則が同じなら使い回す（同じ継承元を何度も解析しない）。
+        var extendCache = new Dictionary<string, (IReadOnlyList<string> Names, string? Error)>(StringComparer.Ordinal);
+
         var findings = new List<FileFinding>();
         foreach (var target in targets)
         {
+            IReadOnlyList<string>? extendTargets = null;
+            string? extendError = null;
+            if (!string.IsNullOrEmpty(target.Rule.ClassExtend))
+            {
+                if (!extendCache.TryGetValue(target.Rule.ClassExtend, out var resolved))
+                {
+                    resolved = ClassExtendResolver.Resolve(target.Rule.ClassExtend, projectRoot);
+                    extendCache[target.Rule.ClassExtend] = resolved;
+                }
+                extendTargets = resolved.Names;
+                extendError = resolved.Error;
+            }
+
             string? source = null;
             string? error = null;
             try
@@ -225,7 +258,7 @@ public sealed class FileRulesPlugin : PluginBase
                 continue;
             }
 
-            var violations = Evaluate(target.Rule, info, source!, target.LanguageId);
+            var violations = Evaluate(target.Rule, info, source!, target.LanguageId, extendTargets, extendError);
             if (violations.Count == 0)
             {
                 continue;
@@ -304,8 +337,13 @@ public sealed class FileRulesPlugin : PluginBase
         return sb.ToString();
     }
 
-    /// <summary>規則に対する違反リストを構築する。</summary>
-    private static List<string> Evaluate(FileRule rule, StructureInfo info, string source, string languageId)
+    /// <summary>
+    /// 規則に対する違反リストを構築する。<paramref name="extendTargets"/> / <paramref name="extendError"/> は
+    /// <c>class.extend</c> の解決結果（呼び出し側が先に <see cref="ClassExtendResolver.Resolve"/> 済み）。
+    /// </summary>
+    private static List<string> Evaluate(
+        FileRule rule, StructureInfo info, string source, string languageId,
+        IReadOnlyList<string>? extendTargets, string? extendError)
     {
         var violations = new List<string>();
 
@@ -335,6 +373,25 @@ public sealed class FileRulesPlugin : PluginBase
             if (rule.ClassForce == true && info.TopLevelClassCount < 1)
             {
                 violations.Add("クラスが必要（このファイルにトップレベルのクラスがない。メソッドのみのファイルは禁止）");
+            }
+            if (rule.ClassExtend is { } extendPath)
+            {
+                if (extendError is not null)
+                {
+                    violations.Add($"class.extend を解決できません（{extendPath}）: {extendError}");
+                }
+                else if (extendTargets is { Count: > 0 })
+                {
+                    foreach (var cls in info.TopLevelClasses)
+                    {
+                        if (!cls.BaseNames.Any(b => extendTargets.Contains(b, StringComparer.Ordinal)))
+                        {
+                            violations.Add(
+                                $"クラス '{cls.Name}'（{cls.StartLine} 行目）が {extendPath} のクラス" +
+                                $"（{string.Join("/", extendTargets)}）を継承していません");
+                        }
+                    }
+                }
             }
         }
 
