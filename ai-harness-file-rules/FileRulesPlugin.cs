@@ -11,6 +11,7 @@ namespace ai_harness_file_rules;
 /// 検査項目（設定 files のエントリ単位）:
 ///   lines            … ファイル総行数の上限
 ///   line-length      … 1 行の文字数の上限（タブは tab-width 文字として数える）
+///   blank-line       … 空行なしで続けられる行数の上限（空行・コメント行が区切り）
 ///   class.one-file   … トップレベルのクラス相当は 1 個まで
 ///   class.force      … クラスが必ず要る（メソッドのみのファイル禁止）
 ///   method.num       … ファイル内メソッド数の上限
@@ -317,6 +318,11 @@ public sealed class FileRulesPlugin : PluginBase
         if (rule.MaxLineLength is { } maxLineLength)
         {
             violations.AddRange(LineLengthChecker.Evaluate(source, maxLineLength, rule.TabWidth));
+        }
+
+        if (rule.MaxConsecutiveLines is { } maxRun)
+        {
+            violations.AddRange(BlankLineChecker.Evaluate(source, maxRun, info.CommentLines));
         }
 
         // class 検査はクラス概念のある言語のみ（無い言語では自動スキップ）。

@@ -28,6 +28,9 @@ public sealed class StructureInfo
 
     /// <summary>コメント検査の対象となる宣言（クラス・メソッド）と、それぞれの引数・doc コメント。</summary>
     public IReadOnlyList<DeclarationInfo> Declarations { get; init; } = Array.Empty<DeclarationInfo>();
+
+    /// <summary>コメントが占める行番号（1 始まり）。複数行コメントは跨ぐ全行を含む。</summary>
+    public IReadOnlySet<int> CommentLines { get; init; } = new HashSet<int>();
 }
 
 /// <summary>
@@ -151,6 +154,9 @@ public static class StructureAnalyzer
 
         var declarations = DeclarationCollector.Collect(root, languageId, classTypes, methodTypes);
 
+        var commentLines = new HashSet<int>();
+        CollectCommentLines(root, languageId, commentLines);
+
         return new StructureInfo
         {
             HasClassConcept = hasClass,
@@ -159,8 +165,42 @@ public static class StructureAnalyzer
             OutsideClassMethods = outsideMethods,
             OutsideClassOperations = outsideOps,
             Declarations = declarations,
+            CommentLines = commentLines,
         };
     }
+
+    /// <summary>
+    /// コメントが占める行を収集する（複数行コメントは跨ぐ全行）。
+    ///
+    /// 型名に <c>comment</c> を含むノードを拾う。6 言語のコメントノード型（<c>comment</c>・
+    /// <c>line_comment</c>・<c>block_comment</c>）を漏れなく捉えられ、AST 由来のため
+    /// 文字列リテラル内の <c>//</c> をコメントと誤認しない。Python の docstring は
+    /// コメントノードではないが、他言語の doc コメントに相当するため同じく収集する。
+    /// </summary>
+    private static void CollectCommentLines(Node node, string lang, HashSet<int> acc)
+    {
+        if (node.Type.Contains("comment") || IsPythonDocString(node, lang))
+        {
+            for (var row = node.StartPosition.Row; row <= DeclarationCollector.EndRow(node); row++)
+            {
+                acc.Add(row + 1);
+            }
+            return;
+        }
+        foreach (var child in node.NamedChildren)
+        {
+            CollectCommentLines(child, lang, acc);
+        }
+    }
+
+    /// <summary>
+    /// Python の docstring（本体・モジュール直下に文として単独で置かれた文字列）か。
+    /// 値として使われる文字列は代入・引数リスト等の下に付くため対象外になる。
+    /// </summary>
+    private static bool IsPythonDocString(Node node, string lang) =>
+        lang == "python"
+        && node.Type == "string"
+        && node.Parent?.Type is "block" or "module" or "expression_statement";
 
     /// <summary>メソッド/関数定義を収集。マッチしたノードの配下へは降りない（クロージャ等を数えない）。</summary>
     private static void CollectMethods(Node node, string lang, HashSet<string> methodTypes, List<MethodInfo> acc)

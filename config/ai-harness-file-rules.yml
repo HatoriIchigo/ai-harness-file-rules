@@ -9,6 +9,7 @@ files:
     lines: 500              # 1 ファイルの最大行数（"*" または省略で無制限）
     line-length: 120        # 1 行の最大文字数（"*" または省略で無制限）
     tab-width: 4            # line-length でタブを何文字と数えるか（省略で 4）
+    blank-line: 10          # 空行なしで続けられる行数の上限（"*" または省略で無制限）
     class:
       one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当は 1 個まで）
       force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
@@ -56,6 +57,8 @@ fire:
 #   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
 #   - line-length は表示幅ではなく文字の個数で数える（全角・半角とも 1 文字）。タブのみ tab-width 文字。
 #   - tab-width は 1 以上の整数のみ（"*" 不可）。line-length を書かなければ使われない。
+#   - blank-line は空行なしで続く行数を数える。空行（空白のみの行を含む）とコメント行が区切りとなり数えを 0 に戻す。
+#     コメント行は AST 由来のため文字列リテラル内の // は区切りにならない。Python の docstring は区切りとして扱う。
 #   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class / comment.class）は自動でスキップされる。
 #   - method.in-class=true はクラス外のメソッド定義と、import/export を除くトップレベルの操作文を deny する。
 #   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。

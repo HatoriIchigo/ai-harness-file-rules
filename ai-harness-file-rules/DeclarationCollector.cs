@@ -152,7 +152,7 @@ public static class DeclarationCollector
     /// ノードが終わる行。Rust の <c>///</c> のように末尾の改行までをノードに含む文法では、
     /// 終端が次行の先頭（列 0）になるため 1 行戻す。
     /// </summary>
-    private static int EndRow(Node node)
+    internal static int EndRow(Node node)
     {
         var end = node.EndPosition;
         return end.Column == 0 ? end.Row - 1 : end.Row;

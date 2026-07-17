@@ -21,6 +21,7 @@ public readonly record struct FileRule(
     int? MaxFileLines,
     int? MaxLineLength,
     int TabWidth,
+    int? MaxConsecutiveLines,
     bool? ClassOneFile,
     bool? ClassForce,
     int? MethodNum,
@@ -38,6 +39,7 @@ public readonly record struct FileRule(
 ///     lines: 500              # 1 ファイルの最大行数（* または省略で無制限）
 ///     line-length: 120        # 1 行の最大文字数（* または省略で無制限）
 ///     tab-width: 4            # line-length でタブを何文字と数えるか（省略で 4）
+///     blank-line: 10          # 空行なしで続けられる行数の上限（* または省略で無制限）
 ///     class:
 ///       one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当 &lt;= 1）
 ///       force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
@@ -114,6 +116,7 @@ public sealed class FileRulesConfig
         var maxFileLines = ParseLimit(Get(map, "lines"), index, "lines", pattern, errors);
         var maxLineLength = ParseLimit(Get(map, "line-length"), index, "line-length", pattern, errors);
         var tabWidth = ParseTabWidth(Get(map, "tab-width"), index, pattern, errors);
+        var maxConsecutive = ParseLimit(Get(map, "blank-line"), index, "blank-line", pattern, errors);
 
         bool? oneFile = null, force = null;
         var classRaw = Get(map, "class");
@@ -150,7 +153,7 @@ public sealed class FileRulesConfig
         var comment = ParseComment(map, index, pattern, errors);
 
         entries.Add(new FileRule(
-            pattern, maxFileLines, maxLineLength, tabWidth,
+            pattern, maxFileLines, maxLineLength, tabWidth, maxConsecutive,
             oneFile, force, methodNum, methodLines, methodInClass, comment));
     }
 
