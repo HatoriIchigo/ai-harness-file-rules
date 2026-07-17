@@ -1,6 +1,6 @@
 # ai-harness-file-rules
 
-> ファイル単位のコード構造ルール（行数・1クラス1ファイル・メソッド数/行数・doc コメント）を AST で強制する ai-harness プラグイン。
+> ファイル単位のコード構造ルール（行数・1 行の文字数・1クラス1ファイル・メソッド数/行数・doc コメント）を AST で強制する ai-harness プラグイン。
 
 書き込み系ツール（`Write` / `Edit` / `MultiEdit`）の `PostToolUse` で発火し、書き込んだソースファイルを **tree-sitter で AST 解析**する。設定 `files` のエントリで定めた構造ルールに反したら **deny（exit 2）** する。
 
@@ -25,6 +25,8 @@ PostToolUse のため書き込み自体は止められない。deny 時は違反
 | 項目 | 内容 |
 |---|---|
 | `lines` | ファイル総行数の上限 |
+| `line-length` | 1 行の文字数の上限（超過した行を行番号付きで列挙） |
+| `tab-width` | `line-length` でタブを何文字と数えるか（既定 4） |
 | `class.one-file` | トップレベルのクラス相当は 1 個まで（1 ファイル = 1 クラス） |
 | `class.force` | クラスが必ず要る（メソッドのみのファイル禁止） |
 | `method.num` | ファイル内メソッド/関数の数の上限 |
@@ -37,7 +39,8 @@ PostToolUse のため書き込み自体は止められない。deny 時は違反
 | `comment.method.params` | 全ての引数が doc コメントに記述されていること（記述漏れを deny） |
 | `comment.method.params-strict` | シグネチャに無い引数の記述を禁止（リネーム・削除の取り残しを deny） |
 
-- 数値は `"*"`（要引用符）または**キー省略**で無制限。`method.in-class`・`comment.*` の真偽値は省略で無効。
+- 数値は `"*"`（要引用符）または**キー省略**で無制限。`method.in-class`・`comment.*` の真偽値は省略で無効。ただし `tab-width` は無制限にできないため `"*"` 不可（省略時は既定の 4）。
+- `line-length` は**表示幅ではなく文字の個数**で数える。全角・半角を区別せず、どちらも 1 文字（サロゲートペアも 1 文字）。日本語コメントの行が実質半分の文字数に制限されることはない。タブだけは `tab-width` 文字として数える（タブストップへの桁揃えはしない）。行末の改行・`\r` は数えない。
 - `method.in-class`: メソッド・操作は必ずクラス内に置かせる。トップレベル（および名前空間直下等）の関数定義と、`import`／`export` を除くトップレベルの操作文を deny する。**クラス概念のある言語（C++ / Java / Python / TypeScript）のみ**有効で、C / Go / Rust では自動スキップ。
 - メソッド数は**ファイル全体**の定義数（クラス内メソッド＋トップレベル関数）。メソッド内のクロージャ/ローカル関数は数えない。TypeScript は変数/フィールドに代入された名前付き arrow も 1 メソッドとして数える。
 - メソッド行数は AST の開始行〜終了行。ファイル行数は末尾改行を 1 行として数えない。
@@ -67,6 +70,8 @@ PostToolUse のため書き込み自体は止められない。deny 時は違反
 files:
   - pattern: "src/main/java/**/*.java"
     lines: 500
+    line-length: 120        # 1 行は 120 文字まで
+    tab-width: 4            # タブは 4 文字として数える（省略で 4）
     class:
       one-file: true
       force: true
@@ -86,6 +91,7 @@ files:
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
+    line-length: 100
     method:
       lines: 40
     # class・comment を書かなければ、その検査はしない
@@ -103,7 +109,7 @@ files:
 3. どの pattern にもマッチせず → 許可（管理対象外）
 ```
 
-- **フェイルクローズ**: `files` 未設定／有効エントリなし／不正な値（`lines`・`method.num`・`method.lines`・`comment.*.min-length` が整数でも `*` でもない、`class.*`・`method.in-class`・`comment.*.require` 等が真偽でない等）があると、対応言語のソース書き込みを **全て deny**。エラー内容は reason に列挙される。
+- **フェイルクローズ**: `files` 未設定／有効エントリなし／不正な値（`lines`・`line-length`・`method.num`・`method.lines`・`comment.*.min-length` が整数でも `*` でもない、`tab-width` が 1 以上の整数でない、`class.*`・`method.in-class`・`comment.*.require` 等が真偽でない等）があると、対応言語のソース書き込みを **全て deny**。エラー内容は reason に列挙される。
 - テスト等を検査対象外にしたい場合は `pattern` に含めなければよい（3 で許可）。
 - ファイルは PostToolUse 時点でディスク上にあるため、書き込んだ**ファイル全体**を解析する。
 
@@ -169,6 +175,7 @@ ai-harness-file-rules/
     ├── DeclarationCollector.cs     AST から宣言・引数名・doc コメントを収集（言語差はここに閉じる）
     ├── DocComment.cs               doc コメントから説明文と引数の記述を取り出す
     ├── CommentChecker.cs           doc コメントとシグネチャの突き合わせ
+    ├── LineLengthChecker.cs        1 行の文字数の検査（タブは tab-width 文字）
     ├── FireScanner.cs              能動スキャンの走査（fire.exclude / fire.gitignore）
     └── GlobMatcher.cs              ** 対応の glob 一致（他プラグインと同一）
 ```

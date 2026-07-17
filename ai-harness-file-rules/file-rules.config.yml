@@ -1,11 +1,13 @@
 # ai-harness-file-rules 設定ファイル（有効化時に自動生成された雛形）。
 # 既定のエントリはどのファイルにもマッチしないプレースホルダ＝実質何も検査しません。
-# 検査するには pattern と各規則（lines / class / method / comment）を実プロジェクトに合わせて
-# 書き換えてください。
+# 検査するには pattern と各規則（lines / line-length / class / method / comment）を実プロジェクトに
+# 合わせて書き換えてください。
 # （files を空にすると有効エントリが無い＝対応言語のソース書き込みが全 deny＝フェイルクローズになります。）
 files:
   - pattern: "__ai_harness_placeholder__/**/*.__disabled__"
     # lines: 500
+    # line-length: 120   # 1 行の最大文字数（全角・半角とも 1 文字）
+    # tab-width: 4       # line-length でタブを何文字と数えるか（省略で 4）
     # class:
     #   one-file: true
     # method:

@@ -19,6 +19,8 @@ public readonly record struct CommentRule(
 public readonly record struct FileRule(
     string Pattern,
     int? MaxFileLines,
+    int? MaxLineLength,
+    int TabWidth,
     bool? ClassOneFile,
     bool? ClassForce,
     int? MethodNum,
@@ -34,6 +36,8 @@ public readonly record struct FileRule(
 /// files:
 ///   - pattern: "src/main/java/**/*.java"
 ///     lines: 500              # 1 ファイルの最大行数（* または省略で無制限）
+///     line-length: 120        # 1 行の最大文字数（* または省略で無制限）
+///     tab-width: 4            # line-length でタブを何文字と数えるか（省略で 4）
 ///     class:
 ///       one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当 &lt;= 1）
 ///       force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
@@ -55,6 +59,9 @@ public readonly record struct FileRule(
 /// </summary>
 public sealed class FileRulesConfig
 {
+    /// <summary>tab-width 省略時に使うタブ幅。</summary>
+    private const int DefaultTabWidth = 4;
+
     public IReadOnlyList<FileRule> Entries { get; }
     public IReadOnlyList<string> Errors { get; }
 
@@ -105,6 +112,8 @@ public sealed class FileRulesConfig
         }
 
         var maxFileLines = ParseLimit(Get(map, "lines"), index, "lines", pattern, errors);
+        var maxLineLength = ParseLimit(Get(map, "line-length"), index, "line-length", pattern, errors);
+        var tabWidth = ParseTabWidth(Get(map, "tab-width"), index, pattern, errors);
 
         bool? oneFile = null, force = null;
         var classRaw = Get(map, "class");
@@ -141,7 +150,8 @@ public sealed class FileRulesConfig
         var comment = ParseComment(map, index, pattern, errors);
 
         entries.Add(new FileRule(
-            pattern, maxFileLines, oneFile, force, methodNum, methodLines, methodInClass, comment));
+            pattern, maxFileLines, maxLineLength, tabWidth,
+            oneFile, force, methodNum, methodLines, methodInClass, comment));
     }
 
     /// <summary>doc コメント規則（<c>comment.class</c> / <c>comment.method</c>）を解釈する。</summary>
@@ -213,6 +223,22 @@ public sealed class FileRulesConfig
         }
         errors.Add($"files[{index}] (pattern='{pattern}'): {key} は 0 以上の整数か * を指定してください（値='{s}'）。");
         return null;
+    }
+
+    /// <summary>タブ幅を解釈。省略は既定の 4。1 以上の整数以外はエラー（* は無制限にできないため不可）。</summary>
+    private static int ParseTabWidth(object? raw, int index, string pattern, List<string> errors)
+    {
+        var s = raw?.ToString()?.Trim();
+        if (string.IsNullOrEmpty(s))
+        {
+            return DefaultTabWidth;
+        }
+        if (int.TryParse(s, out var n) && n >= 1)
+        {
+            return n;
+        }
+        errors.Add($"files[{index}] (pattern='{pattern}'): tab-width は 1 以上の整数を指定してください（値='{s}'）。");
+        return DefaultTabWidth;
     }
 
     /// <summary>真偽を解釈。省略は null（未指定）。true/false 以外はエラー。</summary>

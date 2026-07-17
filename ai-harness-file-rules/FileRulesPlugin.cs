@@ -10,6 +10,7 @@ namespace ai_harness_file_rules;
 ///
 /// 検査項目（設定 files のエントリ単位）:
 ///   lines            … ファイル総行数の上限
+///   line-length      … 1 行の文字数の上限（タブは tab-width 文字として数える）
 ///   class.one-file   … トップレベルのクラス相当は 1 個まで
 ///   class.force      … クラスが必ず要る（メソッドのみのファイル禁止）
 ///   method.num       … ファイル内メソッド数の上限
@@ -32,7 +33,7 @@ public sealed class FileRulesPlugin : PluginBase
     public override string PluginName => "ai-harness-file-rules";
 
     public override string Description =>
-        "AST 解析で、ファイル単位のコード構造ルール（行数・1クラス1ファイル・メソッド）を強制する";
+        "AST 解析で、ファイル単位のコード構造ルール（行数・文字数・1クラス1ファイル・メソッド）を強制する";
 
     public override IReadOnlyList<string> Events => new[] { "PostToolUse" };
 
@@ -139,7 +140,7 @@ public sealed class FileRulesPlugin : PluginBase
         }
 
         var rule = matched.Value;
-        var violations = Evaluate(rule, info, CountLines(source!), languageId);
+        var violations = Evaluate(rule, info, source!, languageId);
 
         if (violations.Count == 0)
         {
@@ -223,7 +224,7 @@ public sealed class FileRulesPlugin : PluginBase
                 continue;
             }
 
-            var violations = Evaluate(target.Rule, info, CountLines(source!), target.LanguageId);
+            var violations = Evaluate(target.Rule, info, source!, target.LanguageId);
             if (violations.Count == 0)
             {
                 continue;
@@ -303,13 +304,19 @@ public sealed class FileRulesPlugin : PluginBase
     }
 
     /// <summary>規則に対する違反リストを構築する。</summary>
-    private static List<string> Evaluate(FileRule rule, StructureInfo info, int fileLines, string languageId)
+    private static List<string> Evaluate(FileRule rule, StructureInfo info, string source, string languageId)
     {
         var violations = new List<string>();
 
+        var fileLines = CountLines(source);
         if (rule.MaxFileLines is { } maxLines && fileLines > maxLines)
         {
             violations.Add($"ファイル行数が上限を超過（{fileLines} 行 > 上限 {maxLines} 行）");
+        }
+
+        if (rule.MaxLineLength is { } maxLineLength)
+        {
+            violations.AddRange(LineLengthChecker.Evaluate(source, maxLineLength, rule.TabWidth));
         }
 
         // class 検査はクラス概念のある言語のみ（無い言語では自動スキップ）。

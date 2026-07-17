@@ -7,6 +7,8 @@
 files:
   - pattern: "src/main/java/**/*.java"
     lines: 500              # 1 ファイルの最大行数（"*" または省略で無制限）
+    line-length: 120        # 1 行の最大文字数（"*" または省略で無制限）
+    tab-width: 4            # line-length でタブを何文字と数えるか（省略で 4）
     class:
       one-file: true        # 1 ファイル = 1 クラス（トップレベルのクラス相当は 1 個まで）
       force: true           # 必ずクラスが要る（メソッドのみのファイル禁止）
@@ -26,6 +28,7 @@ files:
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
+    line-length: 100
     method:
       lines: 40
     # class・comment を書かなければ、その検査はしない。
@@ -51,6 +54,8 @@ fire:
 
 # メモ:
 #   - 無制限にしたい項目はキーを省略するか "*"（YAML のエイリアス回避のため必ず引用符で囲む）。
+#   - line-length は表示幅ではなく文字の個数で数える（全角・半角とも 1 文字）。タブのみ tab-width 文字。
+#   - tab-width は 1 以上の整数のみ（"*" 不可）。line-length を書かなければ使われない。
 #   - クラス概念の無い C / Go / Rust では class 検査（class.* / method.in-class / comment.class）は自動でスキップされる。
 #   - method.in-class=true はクラス外のメソッド定義と、import/export を除くトップレベルの操作文を deny する。
 #   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。
