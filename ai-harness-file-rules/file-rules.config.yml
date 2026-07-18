@@ -18,3 +18,4 @@ files:
     # comment:
     #   method:
     #     require: true
+    # unused: true       # 未使用 import／変数／関数／クラスを検出（要 common.yml の lsp: 有効化）

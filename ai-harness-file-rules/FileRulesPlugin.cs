@@ -20,7 +20,13 @@ namespace ai_harness_file_rules;
 ///   method.in-class  … メソッド・操作は必ずクラス内（クラス外メソッド／クラス外操作を禁止）
 ///   comment.class    … クラスの doc コメント（有無・説明の最低文字数）
 ///   comment.method   … メソッドの doc コメント（有無・説明の最低文字数・引数の記述とシグネチャの整合）
+///   unused           … 未使用 import／変数／関数／クラスの検出（<see cref="UnusedSymbolChecker"/>）。
+///                       自前のスコープ解析はせず LSP 診断をそのまま使う。<see cref="Action"/>（hook）では
+///                       <see cref="HookData.LspDiagnostics"/>（非同期キャッシュ読み取り・ブロックしない）、
+///                       <see cref="Fire"/>（能動スキャン）では <see cref="PluginBase.FireLsp"/>
+///                       （ファイルごとに同期リクエストして応答を待つ）と、経路も待ち方も異なる。
 ///
+
 /// クラス概念の無い言語（C / Go / Rust）では class 検査（class.* / method.in-class）を自動スキップする。
 /// 判定（対応言語のソースのみ対象。非ソースは常に許可）:
 ///   1. 設定が使用不可            → deny（フェイルクローズ）
@@ -49,6 +55,14 @@ public sealed class FileRulesPlugin : PluginBase
 
     /// <summary>reason に列挙する超過メソッドの最大件数。</summary>
     private const int MaxReportedMethods = 20;
+
+    /// <summary>
+    /// Fire で <c>unused: true</c> のファイルごとに LSP 診断を待つ上限。対象言語の LSP がまだ未起動なら、
+    /// その言語の最初の1ファイルではインストール・起動完了までの待ちもこの中に含まれる
+    /// （<see cref="LspManager.RequestDiagnosticsSync"/> 参照）。2 ファイル目以降は既に起動済みのため、
+    /// 実際にはこの上限よりずっと短い時間で返ることが多い。
+    /// </summary>
+    private static readonly TimeSpan UnusedRequestTimeout = TimeSpan.FromSeconds(60);
 
     public override IEnumerable<LogEntry> Init()
     {
@@ -158,7 +172,16 @@ public sealed class FileRulesPlugin : PluginBase
         }
 
         var rule = matched.Value;
-        var violations = Evaluate(rule, info, source!, languageId, extendTargets, extendError);
+        var fileDiagnostics = LookupDiagnostics(data.LspDiagnostics, filePath);
+        if (rule.Unused == true && fileDiagnostics is null)
+        {
+            // deny はしない（LSP の不調・未設定は hook をブロックしない方針）が、unused が実質何も検査していない
+            // ことに気づけるようログだけは残す。原因は複数あり得るため特定はしない
+            // （未対応言語／common.yml の lsp: 未設定／LSP起動前／このファイル未同期のいずれか）。
+            yield return LogEntry.Warning(
+                $"unused: LSP 診断が見つからないため検査されていません（未対応言語／lsp: 未設定／起動前／未同期のいずれか）: {filePath}");
+        }
+        var violations = Evaluate(rule, info, source!, languageId, extendTargets, extendError, fileDiagnostics);
 
         if (violations.Count == 0)
         {
@@ -193,6 +216,21 @@ public sealed class FileRulesPlugin : PluginBase
             result.ExitCode = 2;
             result.Reason = BuildConfigErrorReason(config.Errors);
             yield break;
+        }
+
+        var usesUnused = config.Entries.Any(e => e.Unused == true);
+        if (usesUnused && FireLsp is null)
+        {
+            // 通常は host が必ず注入するので起きないはずだが、万一の防御的メッセージ。
+            yield return LogEntry.Warning(
+                "unused: true が設定されていますが LSP リクエスタが利用できないため評価しません。");
+        }
+        else if (usesUnused)
+        {
+            // Fire はファイルごとに同期待ち（RequestDiagnostics）でブロックするため、対象言語の LSP が
+            // 未起動だとその言語の最初の1ファイルでインストール・起動完了まで待つ（数秒〜数十秒かかることがある）。
+            yield return LogEntry.Info(
+                "unused: true を含むため、対象言語の LSP 診断が届くまで待ちながら走査します（初回は時間がかかることがあります）。");
         }
 
         var options = FireScanner.ReadOptions(Config);
@@ -258,7 +296,16 @@ public sealed class FileRulesPlugin : PluginBase
                 continue;
             }
 
-            var violations = Evaluate(target.Rule, info, source!, target.LanguageId, extendTargets, extendError);
+            // unused は Fire 専用の同期リクエスト（FireLsp）で都度取得する。届くまでブロックする
+            // （Action の HookData.LspDiagnostics のような非同期キャッシュ読みではない。Fire は同期バッチのため許容）。
+            IReadOnlyList<LspDiagnostic>? fileDiagnostics = null;
+            if (target.Rule.Unused == true && FireLsp is not null)
+            {
+                fileDiagnostics = FireLsp.RequestDiagnostics(target.Path, source!, UnusedRequestTimeout);
+            }
+
+            var violations = Evaluate(
+                target.Rule, info, source!, target.LanguageId, extendTargets, extendError, fileDiagnostics);
             if (violations.Count == 0)
             {
                 continue;
@@ -340,12 +387,19 @@ public sealed class FileRulesPlugin : PluginBase
     /// <summary>
     /// 規則に対する違反リストを構築する。<paramref name="extendTargets"/> / <paramref name="extendError"/> は
     /// <c>class.extend</c> の解決結果（呼び出し側が先に <see cref="ClassExtendResolver.Resolve"/> 済み）。
+    /// <paramref name="fileDiagnostics"/> は対象ファイルの LSP 診断（hook 駆動のときのみ非 null。Fire は null）。
     /// </summary>
     private static List<string> Evaluate(
         FileRule rule, StructureInfo info, string source, string languageId,
-        IReadOnlyList<string>? extendTargets, string? extendError)
+        IReadOnlyList<string>? extendTargets, string? extendError,
+        IReadOnlyList<LspDiagnostic>? fileDiagnostics)
     {
         var violations = new List<string>();
+
+        if (rule.Unused == true)
+        {
+            violations.AddRange(UnusedSymbolChecker.Evaluate(fileDiagnostics));
+        }
 
         var fileLines = CountLines(source);
         if (rule.MaxFileLines is { } maxLines && fileLines > maxLines)
@@ -482,6 +536,25 @@ public sealed class FileRulesPlugin : PluginBase
 
     private static string? ExtractFilePath(HookData data) =>
         AsString(GetMember(data.ToolInput, "file_path")) ?? data.FilePath;
+
+    /// <summary>
+    /// <paramref name="filePath"/> に対応する LSP 診断を <paramref name="diagnostics"/> から引く。
+    /// キーは main 側で <c>Uri.LocalPath</c> 経由に正規化されているため、まず素の一致を試し、
+    /// 無ければ <see cref="Path.GetFullPath(string)"/> で正規化して再度引く。
+    /// </summary>
+    private static IReadOnlyList<LspDiagnostic>? LookupDiagnostics(
+        IReadOnlyDictionary<string, IReadOnlyList<LspDiagnostic>>? diagnostics, string filePath)
+    {
+        if (diagnostics is null)
+        {
+            return null;
+        }
+        if (diagnostics.TryGetValue(filePath, out var direct))
+        {
+            return direct;
+        }
+        return diagnostics.TryGetValue(Path.GetFullPath(filePath), out var normalized) ? normalized : null;
+    }
 
     private static JsonNode? GetMember(JsonNode? node, string name) =>
         node is JsonObject obj && obj.TryGetPropertyValue(name, out var v) ? v : null;

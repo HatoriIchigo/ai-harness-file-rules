@@ -28,7 +28,8 @@ public readonly record struct FileRule(
     int? MethodNum,
     int? MethodMaxLines,
     bool? MethodInClass,
-    CommentRule Comment);
+    CommentRule Comment,
+    bool? Unused);
 
 /// <summary>
 /// ai-harness-file-rules の設定を解釈・検証した結果。
@@ -58,6 +59,7 @@ public readonly record struct FileRule(
 ///         min-length: 10      # 説明文の最低文字数
 ///         params: true        # 全ての引数が記述されていること
 ///         params-strict: true # 存在しない引数の記述を禁止（シグネチャとの乖離を防ぐ）
+///     unused: true           # 未使用 import／変数／関数／クラスを検出（LSP診断ベース）
 /// </code>
 /// 数値に <c>*</c> を使う場合は YAML のエイリアス扱いを避けるため <c>"*"</c> と引用するか、キーを省略する。
 /// </summary>
@@ -155,10 +157,11 @@ public sealed class FileRulesConfig
         }
 
         var comment = ParseComment(map, index, pattern, errors);
+        var unused = ParseBool(Get(map, "unused"), index, "unused", pattern, errors);
 
         entries.Add(new FileRule(
             pattern, maxFileLines, maxLineLength, tabWidth, maxConsecutive,
-            oneFile, force, extend, methodNum, methodLines, methodInClass, comment));
+            oneFile, force, extend, methodNum, methodLines, methodInClass, comment, unused));
     }
 
     /// <summary>doc コメント規則（<c>comment.class</c> / <c>comment.method</c>）を解釈する。</summary>

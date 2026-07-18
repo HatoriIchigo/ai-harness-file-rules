@@ -26,6 +26,7 @@ files:
         min-length: 10
         params: true        # 全ての引数が doc コメントに記述されていること
         params-strict: true # シグネチャに無い引数の記述を禁止（リネーム・削除の取り残しを検出）
+    unused: true             # 未使用 import／変数／関数／クラスを検出（下記メモ参照。要 lsp: 有効化）
 
   - pattern: "frontend/main/**/*.ts"
     lines: 300
@@ -63,6 +64,13 @@ fire:
 #   - method.in-class=true はクラス外のメソッド定義と、import/export を除くトップレベルの操作文を deny する。
 #   - どの pattern にもマッチしないファイルは管理対象外（許可）。テスト等は pattern に含めなければよい。
 #   - 設定が不正／有効エントリ無しの場合は対応言語のソース書き込みを全 deny（フェイルクローズ）。
+#   - unused は tree-sitter の自前解析ではなく、ai-harness-main の LSP 連携機能を使う。対象言語を
+#     common.yml の lsp: で有効化していなければ何も検出しない（エラーにはならない。ログに警告だけ出る）。
+#     hook（Write/Edit/MultiEdit の PostToolUse）では LSP の非同期キャッシュを読むだけで待たないため、
+#     編集した直後の hook では反映されず、次にそのファイルを触った hook から検出されることが多い。
+#     ai-harness-main --fire の能動スキャンではファイルごとに LSP からの応答を待つため、hook より正確に
+#     検出できる代わりに、対象言語の LSP が未起動だと最初の1ファイルはインストール・起動待ちが乗る
+#     （数秒〜数十秒。2ファイル目以降は起動済みなので速い）。
 #
 # doc コメントの書式（言語の標準に合わせる。実装コメント // は doc と認めない。Go を除く）:
 #   Java        /** */          @param 名前 説明
